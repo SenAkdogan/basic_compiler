@@ -1,21 +1,21 @@
 import sys
 
-# --- 1. TOKEN TİPLERİ ---
+# --- 1. TOKEN TYPES ---
 INTEGER = 'INTEGER'
 STRING  = 'STRING'
-ID      = 'ID'
-ASSIGN  = 'ASSIGN'
+ID      = 'ID'      # Variable names
+ASSIGN  = 'ASSIGN'  # =
 PLUS    = 'PLUS'
 MINUS   = 'MINUS'
 MUL     = 'MUL'
 DIV     = 'DIV'
 LPAREN  = 'LPAREN'
 RPAREN  = 'RPAREN'
-EQ      = 'EQ'  # ==
-NEQ     = 'NEQ' # !=
-LT      = 'LT'  # <
-GT      = 'GT'  # >
-# YENİ: Karar Yapıları
+EQ      = 'EQ'      # ==
+NEQ     = 'NEQ'     # !=
+LT      = 'LT'      # <
+GT      = 'GT'      # >
+# Decision Structures
 IF      = 'IF'
 THEN    = 'THEN'
 ELSE    = 'ELSE'
@@ -35,7 +35,7 @@ class Lexer:
         self.text = text
         self.pos = 0
         self.current_char = self.text[self.pos]
-        # YENİ: Ayrılmış Kelimeler (Bunlar değişken ismi olamaz)
+        # Reserved Keywords (These cannot be used as variable names)
         self.RESERVED_KEYWORDS = {
             'if': Token(IF, 'if'),
             'then': Token(THEN, 'then'),
@@ -43,9 +43,10 @@ class Lexer:
         }
 
     def error(self):
-        raise Exception(f"Hata: Geçersiz karakter '{self.current_char}'")
+        raise Exception(f"Error: Invalid character '{self.current_char}'")
 
     def advance(self):
+        """Advance the 'pos' pointer and set the 'current_char' variable."""
         self.pos += 1
         if self.pos > len(self.text) - 1:
             self.current_char = None
@@ -53,6 +54,7 @@ class Lexer:
             self.current_char = self.text[self.pos]
 
     def peek(self):
+        """Look at the next character without consuming it."""
         peek_pos = self.pos + 1
         if peek_pos > len(self.text) - 1:
             return None
@@ -63,6 +65,7 @@ class Lexer:
             self.advance()
 
     def integer(self):
+        """Return a (multidigit) integer consumed from the input."""
         result = ''
         while self.current_char is not None and self.current_char.isdigit():
             result += self.current_char
@@ -70,27 +73,28 @@ class Lexer:
         return int(result)
 
     def string(self):
+        """Handle string literals enclosed in double quotes."""
         result = ''
-        self.advance()
+        self.advance() # Skip opening quote
         while self.current_char is not None and self.current_char != '"':
             result += self.current_char
             self.advance()
-        self.advance()
+        self.advance() # Skip closing quote
         return result
 
     def _id(self):
-        """Değişken isimlerini VE anahtar kelimeleri (if, else) okur"""
+        """Handle identifiers and reserved keywords."""
         result = ''
         while self.current_char is not None and self.current_char.isalnum():
             result += self.current_char
             self.advance()
         
-        # YENİ: Eğer okuduğumuz kelime 'if', 'then' veya 'else' ise özel token döndür
-        # Değilse normal değişken (ID) döndür
+        # Check if the identifier is a reserved keyword (if, then, else)
         token = self.RESERVED_KEYWORDS.get(result, Token(ID, result))
         return token
 
     def get_all_tokens(self):
+        """Lexical Analyzer: Converts the input string into a list of tokens."""
         tokens = []
         
         while self.current_char is not None:
@@ -107,7 +111,6 @@ class Lexer:
                 continue
 
             if self.current_char.isalpha():
-                # Artık _id fonksiyonu hem değişkenleri hem if/else'i hallediyor
                 tokens.append(self._id())
                 continue
 
@@ -181,12 +184,17 @@ class Interpreter:
         self.tokens = tokens
         self.pos = 0
         self.current_token = self.tokens[self.pos]
-        self.GLOBAL_SCOPE = {} 
+        self.GLOBAL_SCOPE = {} # Symbol Table (Memory)
 
     def error(self):
-        raise Exception('Hata: Sözdizimi hatası!')
+        raise Exception('Error: Invalid Syntax')
 
     def eat(self, token_type):
+        """
+        Compare the current token type with the passed token type 
+        and if they match then "eat" the current token and assign 
+        the next token to the self.current_token.
+        """
         if self.current_token.type == token_type:
             self.pos += 1
             if self.pos < len(self.tokens):
@@ -201,6 +209,7 @@ class Interpreter:
         return None
 
     def factor(self):
+        """factor : INTEGER | STRING | LPAREN expr RPAREN | variable"""
         token = self.current_token
         if token.type == INTEGER:
             self.eat(INTEGER)
@@ -214,7 +223,7 @@ class Interpreter:
             if var_name in self.GLOBAL_SCOPE:
                 return self.GLOBAL_SCOPE[var_name]
             else:
-                raise Exception(f"Hata: '{var_name}' tanımlı değil!")
+                raise Exception(f"Error: Variable '{var_name}' not defined")
         elif token.type == LPAREN:
             self.eat(LPAREN)
             result = self.comp_expr() 
@@ -223,6 +232,7 @@ class Interpreter:
         self.error()
 
     def term(self):
+        """term : factor ((MUL | DIV) factor)*"""
         result = self.factor()
         while self.current_token.type in (MUL, DIV):
             token = self.current_token
@@ -235,6 +245,7 @@ class Interpreter:
         return result
 
     def expr(self):
+        """expr : term ((PLUS | MINUS) term)*"""
         result = self.term()
         while self.current_token.type in (PLUS, MINUS):
             token = self.current_token
@@ -247,6 +258,7 @@ class Interpreter:
         return result
 
     def comp_expr(self):
+        """comp_expr : expr ((EQ | NEQ | LT | GT) expr)*"""
         result = self.expr()
         if self.current_token.type in (EQ, NEQ, LT, GT):
             token = self.current_token
@@ -265,26 +277,31 @@ class Interpreter:
         return result
 
     def statement(self):
-        # 1. DURUM: Değişken Atama (x = ...)
+        """
+        statement : assignment_statement 
+                  | if_statement
+                  | comp_expr
+        """
+        # CASE 1: Variable Assignment (x = ...)
         if self.current_token.type == ID and self.peek().type == ASSIGN:
             var_name = self.current_token.value
             self.eat(ID)
             self.eat(ASSIGN)
-            value = self.statement() # Recursive çağrı
+            value = self.statement()
             self.GLOBAL_SCOPE[var_name] = value
             return value
         
-        # 2. DURUM: IF STATEMENT (if ... then ... else ...)
+        # CASE 2: IF STATEMENT (if ... then ... else ...)
         elif self.current_token.type == IF:
             self.eat(IF)
-            # Şartı kontrol et
+            # Check the condition
             condition = self.comp_expr()
             
             self.eat(THEN)
-            # Eğer şart doğruysa burayı çalıştır
+            # If condition is true, execute this part
             true_result = self.statement()
             
-            # Else kısmı (Opsiyonel yapılabilir ama biz zorunlu tutalım şimdilik)
+            # Else part
             if self.current_token.type == ELSE:
                 self.eat(ELSE)
                 false_result = self.statement()
@@ -294,24 +311,23 @@ class Interpreter:
                 else:
                     return false_result
             
-            # Else yoksa ve şart doğruysa sonucu dön
+            # If no else and condition is true
             if condition:
                 return true_result
             return None
 
-        # 3. DURUM: Normal İşlem
+        # CASE 3: Normal Expression
         else:
             return self.comp_expr()
 
-# --- TEST ---
+# --- MAIN LOOP ---
 def main():
-    print("Çıkmak için CTRL+C veya boş entere basın.")
+    print("Press CTRL+C or hit Enter on an empty line to exit.")
     global_scope = {} 
 
     while True:
         try:
-            # Versiyon kontrolü için V9 yazalım
-            text = input('calc V9 > ')
+            text = input('calc > ')
         except EOFError:
             break
         if not text:
